@@ -12,52 +12,119 @@ process.argv = ["@#{process.env.HUBOT_SLACK_BOTNAME}"]
 
 yargs = require 'yargs/yargs'
 axios = require 'axios'
+client = require 'cheerio-httpcli'
 
 getRandomInt = (max) ->
   return Math.floor(Math.random() * Math.floor(max));
+
+sleep = (waitSeconds, data) ->
+  return new Promise (resolve) ->
+    setTimeout () ->
+      resolve(data)
+    , waitSeconds * 1000
 
 # ランチのレコメンド
 lunchSearch = {
   url: "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
   photoUrl: "https://maps.googleapis.com/maps/api/place/photo?key=#{process.env.GOOGLE_PLACE_APIKEY}&maxheight=300"
+  tabelogUrl: "https://tabelog.com/rstLst/"
   params: {
     language: "ja"
     type: "restaurant"
     key: process.env.GOOGLE_PLACE_APIKEY
   }
 }
+
+getPagePlace = (page, location, radius, keyword) ->
+  return Array(page).fill(0).reduce( (response) ->
+    return response.then( (r) ->
+      params = Object.assign {}, lunchSearch.params, {
+        location: location
+        radius: radius
+      }
+      if keyword? is not ''
+        params.keyword = keyword
+      if !r?
+        return axios.get(lunchSearch.url, {params: params}).then (r) -> sleep(5, r)
+      else if r.data.next_page_token?
+        params.pagetoken = r.data.next_page_token
+        return axios.get(lunchSearch.url, {params: params}).then (r) -> sleep(5, r)
+      else
+        return r
+    )
+  , Promise.resolve())
+
 lunchHandler = (res) ->
   (argv) ->
-    params = Object.assign {}, lunchSearch.params, {
-      location: argv.location
-      radius: argv.radius
-    }
-    axios.get(lunchSearch.url, {params: params})
+    page = (getRandomInt 3) + 1
+    getPagePlace(page, argv.location, argv.radius, argv.keyword)
       .then (response) ->
+        if response.data.results.length is 0 and response.data.status is 'ZERO_RESULTS'
+          err = new Error()
+          err.notFound = true
+          throw err
         itemIdx = getRandomInt(response.data.results.length)
         item = response.data.results[itemIdx]
-        attachment =
-          title: item.name
-          text: """おすすめ： #{item.rating}
-  場所： #{item.vicinity}
-  """
-        return {item: item, attachment: attachment}
-      .then (msg) ->
-        if msg.item.photos.length is 0 or !msg.item.photos[0].photo_reference?
-          return msg.attachment
-
-        axios.get("#{lunchSearch.photoUrl}&photoreference=#{msg.item.photos[0].photo_reference}")
+        return {google: item, count: response.data.results.length}
+      .then (item) ->
+        client.fetch("#{lunchSearch.tabelogUrl}?sw=#{encodeURIComponent(item.google.name)}")
+          .then (result) ->
+            if Number(result.$('.list-condition__count').text()) is 0
+              return item
+            $target = result.$('.list-rst').eq(0)
+            item.tabelog = {
+              link: $target.find('a.list-rst__rst-name-target').attr('href')
+              rating: $target.find('.list-rst__rating-val').text()
+              thumb_url: $target.find('.list-rst__image-target img').attr('data-original')
+            }
+            return item
+          .catch (err) ->
+            console.error err
+            return item
+      .then (item) ->
+        if item.tabelog? and item.tabelog.thumb_url? is not ''
+          return item
+        if !item.google.photos? or item.google.photos.length is 0 or !item.google.photos[0].photo_reference?
+          return item
+        axios.get("#{lunchSearch.photoUrl}&photoreference=#{item.google.photos[0].photo_reference}")
           .then (response) ->
-            msg.attachment.thumb_url = response.request.res.responseUrl
-            return msg.attachment
-      .then (attachment) ->
-        res.reply
+            item.google.thumb_url = response.request.res.responseUrl
+            return item
+      .then (item) ->
+        rateText = "評価: Google *`#{if item.google?.rating? then item.google.rating else 'なし'}`*"
+        rateText += "　食べログ *`#{if item.tabelog?.rating? then item.tabelog.rating else 'なし'}`*"
+
+        attachment =
+          title: item.google.name
+          text: """#{rateText}
+アクセス: #{item.google.vicinity}
+ヒット件数： #{if item.count == 20 then '20件以上' else "#{item.count}件"}
+"""
+
+        thumbURL = item.google.thumb_url
+        if item.tabelog? and item.tabelog.thumb_url?
+          thumbURL = item.tabelog.thumb_url
+        if thumbURL?
+          attachment.thumb_url = thumbURL
+
+        if item.tabelog?
+          attachment.title_link = item.tabelog.link
+
+        res.send
           attachments: JSON.stringify [attachment]
+      .catch (err) ->
+        if err.notFound
+          res.reply """検索条件に一致するお店が見つかりませんでした。"""
+        else
+          console.error err
+          res.reply """エラーが発生しました。
+#{err.message}
+"""
 
 randomCountHandler = (res) ->
   (argv) ->
     val = getRandomInt(argv.max)
-    res.reply 
+    res.send 
       attachments: JSON.stringify [
         {
           title: "generated random numbers max #{argv.max}"
@@ -67,55 +134,60 @@ randomCountHandler = (res) ->
 
 helloHandler = (res) ->
   (argv) ->
-    res.reply 
+    res.send 
       attachments: JSON.stringify [
         {
           title: "Hello World!"
         }
       ]
 
+factoryParser = (res) ->
+  yargs().exitProcess(false)
+    .usage("Usage: $0 <command> [options]")
+    .command(
+      command: 'hello'
+      desc: 'Hello Worldを出力する'
+      handler: helloHandler(res)
+
+    )
+    .command(
+      command: 'random [options]'
+      desc: 'ランダムな数値を出力する'
+      builder: (yargs) ->
+        yargs.option('max'
+          alias: 'm'
+          describe: 'ランダム生成の最大値'
+          type: 'number'
+          default: 10
+        )
+      handler: randomCountHandler(res)
+    )
+    .command(
+      command: 'lunch [keyword] [options]'
+      desc: 'ランチ候補のお店をランダムで表示する\n※GooglePlaceAPIの仕様で3~10秒の遅延あり'
+      builder: (yargs) ->
+        yargs.positional('keyword'
+          describe: '検索キーワード 例：肉'
+          type: 'string'
+        ).option('location'
+          alias: 'l'
+          describe: '検索対象の位置情報(緯度,経度) デフォルト: 新宿'
+          type: 'string'
+          default: '35.7015239,139.6916546'
+        ).option('radius'
+          alias: 'r'
+          describe: '位置情報からの検索半径(m)'
+          type: 'number'
+          default: 500
+        )
+      handler: lunchHandler(res)
+    )
+    .help()
+
 module.exports = (robot) ->
 
-  robot.respond /.*/i, (res) ->
-    parser = yargs().exitProcess(false)
-      .usage("Usage: $0 <command> [options]")
-      .command(
-        command: 'hello'
-        desc: 'Hello Worldを出力する'
-        handler: helloHandler(res)
-
-      )
-      .command(
-        command: 'random [options]'
-        desc: 'ランダムな数値を出力する'
-        builder: (yargs) ->
-          yargs.option('max'
-            alias: 'm'
-            describe: 'ランダム生成の最大値'
-            type: 'number'
-            default: 10
-          )
-        handler: randomCountHandler(res)
-      )
-      .command(
-        command: 'lunch'
-        desc: 'ランチ候補のお店をランダムで表示する'
-        builder: (yargs) ->
-          yargs.option('location'
-            alias: 'l'
-            describe: '検索対象の位置情報 デフォルト: 新宿'
-            type: 'string'
-            default: '35.7015239,139.6916546'
-          ).option('radius'
-            alias: 'r'
-            describe: '位置情報からの検索半径(m)'
-            type: 'number'
-            default: 500
-          )
-        handler: lunchHandler(res)
-      )
-      .help()
-      .parse res.message.rawText, (err, argv, output) ->
-        # output help message
-        if output
-          res.reply """```#{output}```"""
+  robot.respond /(.+)/i, (res) ->
+    factoryParser(res).parse res.match[1], (err, argv, output) ->
+      # output help message
+      if output
+        res.send """```#{output}```"""
