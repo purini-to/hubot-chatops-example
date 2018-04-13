@@ -13,6 +13,7 @@ process.argv = ["@#{process.env.HUBOT_SLACK_BOTNAME}"]
 yargs = require 'yargs/yargs'
 axios = require 'axios'
 client = require 'cheerio-httpcli'
+generator = require 'generate-password'
 
 getRandomInt = (max) ->
   return Math.floor(Math.random() * Math.floor(max));
@@ -132,6 +133,17 @@ randomCountHandler = (res) ->
         }
       ]
 
+passowrdHandler = (res) ->
+  (argv) ->
+    pass = generator.generate argv
+    res.send 
+      attachments: JSON.stringify [
+        {
+          title: "generated password"
+          text: "password: `#{pass}`"
+        }
+      ]
+
 helloHandler = (res) ->
   (argv) ->
     res.send 
@@ -151,16 +163,51 @@ factoryParser = (res) ->
 
     )
     .command(
-      command: 'random [options]'
-      desc: 'ランダムな数値を出力する'
+      command: 'gen <command> [options]'
+      desc: '生成便利ツール(数値/パスワード...etc)'
       builder: (yargs) ->
-        yargs.option('max'
-          alias: 'm'
-          describe: 'ランダム生成の最大値'
-          type: 'number'
-          default: 10
+        yargs.command(
+          command: 'rand [options]'
+          desc: 'ランダムな数値を出力する'
+          builder: (yargs) ->
+            yargs.option('max'
+              alias: 'm'
+              describe: 'ランダム生成の最大値'
+              type: 'number'
+              default: 10
+            )
+          handler: randomCountHandler(res)
+        ).command(
+          command: 'pass [options]'
+          desc: 'パスワードを生成する\nboolean値のオプションは --no を先頭に付与することにより false に設定できる'
+          builder: (yargs) ->
+            yargs.option('length'
+              alias: 'l'
+              describe: 'パスワードの長さ'
+              type: 'number'
+              default: 16
+            ).option('numbers'
+              alias: 'n'
+              describe: 'パスワードに数字を含める'
+              type: 'boolean'
+              default: true
+            ).option('symbols'
+              alias: 's'
+              describe: 'パスワードに記号を含める'
+              type: 'boolean'
+              default: false
+            ).option('uppercase'
+              alias: 'u'
+              describe: 'パスワードに大文字を含める'
+              type: 'boolean'
+              default: true
+            ).option('strict'
+              describe: 'パスワードは、各フラグから少なくとも1文字を含む文字を生成する'
+              type: 'boolean'
+              default: true
+            ).example('$0 gen pass --no-u', '大文字を含めないパスワードを生成する')
+          handler: passowrdHandler(res)
         )
-      handler: randomCountHandler(res)
     )
     .command(
       command: 'lunch [keyword] [options]'
