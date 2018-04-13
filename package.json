@@ -5,6 +5,7 @@
   "author": "hiroshi urainkyo <hs_urainkyo@opt.co.jp>",
   "description": "A simple helpful robot for your Company",
   "dependencies": {
+    "axios": "^0.18.0",
     "hubot": "^2.19.0",
     "hubot-slack": "^4.4.0",
     "yargs": "^11.0.0"
