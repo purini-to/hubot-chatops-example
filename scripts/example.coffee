@@ -160,9 +160,7 @@ factoryParser = (res) ->
       command: 'hello'
       desc: 'Hello Worldを出力する'
       handler: helloHandler(res)
-
-    )
-    .command(
+    ).command(
       command: 'gen <command> [options]'
       desc: '生成便利ツール(数値/パスワード...etc)'
       builder: (yargs) ->
@@ -208,8 +206,7 @@ factoryParser = (res) ->
             ).example('$0 gen pass --no-u', '大文字を含めないパスワードを生成する')
           handler: passowrdHandler(res)
         )
-    )
-    .command(
+    ).command(
       command: 'lunch [keyword] [options]'
       desc: 'ランチ候補のお店をランダムで表示する\n※GooglePlaceAPIの仕様で3~10秒の遅延あり'
       builder: (yargs) ->
@@ -228,8 +225,7 @@ factoryParser = (res) ->
           default: 500
         )
       handler: lunchHandler(res)
-    )
-    .help()
+    ).help()
 
 module.exports = (robot) ->
 
