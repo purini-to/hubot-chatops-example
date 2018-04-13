@@ -15,16 +15,18 @@ axios = require 'axios'
 client = require 'cheerio-httpcli'
 generator = require 'generate-password'
 
+# 乱数を取得
 getRandomInt = (max) ->
   return Math.floor(Math.random() * Math.floor(max));
 
+# 指定秒数待機する
 sleep = (waitSeconds, data) ->
   return new Promise (resolve) ->
     setTimeout () ->
       resolve(data)
     , waitSeconds * 1000
 
-# ランチのレコメンド
+# ランチ処理のパラメータ
 lunchSearch = {
   url: "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
   photoUrl: "https://maps.googleapis.com/maps/api/place/photo?key=#{process.env.GOOGLE_PLACE_APIKEY}&maxheight=300"
@@ -36,6 +38,7 @@ lunchSearch = {
   }
 }
 
+# 指定ページ数GooglePlaceAPIを呼び出す
 getPagePlace = (page, location, radius, keyword) ->
   return Array(page).fill(0).reduce( (response) ->
     return response.then( (r) ->
@@ -55,6 +58,7 @@ getPagePlace = (page, location, radius, keyword) ->
     )
   , Promise.resolve())
 
+# ランチ候補のお店をランダムで表示する
 lunchHandler = (res) ->
   (argv) ->
     page = (getRandomInt 3) + 1
@@ -122,7 +126,8 @@ lunchHandler = (res) ->
 #{err.message}
 """
 
-randomCountHandler = (res) ->
+# ランダムな数値を出力する
+genRandHandler = (res) ->
   (argv) ->
     val = getRandomInt(argv.max)
     res.send 
@@ -133,7 +138,8 @@ randomCountHandler = (res) ->
         }
       ]
 
-passowrdHandler = (res) ->
+# パスワードを生成する
+genPassowrdHandler = (res) ->
   (argv) ->
     pass = generator.generate argv
     res.send 
@@ -144,6 +150,7 @@ passowrdHandler = (res) ->
         }
       ]
 
+# Hello Worldを出力する
 helloHandler = (res) ->
   (argv) ->
     res.send 
@@ -174,7 +181,7 @@ factoryParser = (res) ->
               type: 'number'
               default: 10
             )
-          handler: randomCountHandler(res)
+          handler: genRandHandler(res)
         ).command(
           command: 'pass [options]'
           desc: 'パスワードを生成する\nboolean値のオプションは --no を先頭に付与することにより false に設定できる'
@@ -204,7 +211,7 @@ factoryParser = (res) ->
               type: 'boolean'
               default: true
             ).example('$0 gen pass --no-u', '大文字を含めないパスワードを生成する')
-          handler: passowrdHandler(res)
+          handler: genPassowrdHandler(res)
         )
     ).command(
       command: 'lunch [keyword] [options]'
