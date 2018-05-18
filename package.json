@@ -4,12 +4,19 @@
   "private": true,
   "author": "hiroshi urainkyo <hs_urainkyo@opt.co.jp>",
   "description": "A simple helpful robot for your Company",
+  "scripts": {
+    "start": "bin/hubot -a slack"
+  },
   "dependencies": {
     "axios": "^0.18.0",
     "cheerio-httpcli": "^0.7.2",
     "generate-password": "^1.4.0",
     "hubot": "^2.19.0",
     "hubot-slack": "^4.4.0",
+    "lodash": "^4.17.10",
+    "moment": "^2.22.1",
+    "xml-query": "^1.4.0",
+    "xml-reader": "^2.4.3",
     "yargs": "^11.0.0"
   },
   "engines": {

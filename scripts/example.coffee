@@ -14,6 +14,10 @@ yargs = require 'yargs/yargs'
 axios = require 'axios'
 client = require 'cheerio-httpcli'
 generator = require 'generate-password'
+XmlReader = require 'xml-reader'
+xmlQuery = require 'xml-query'
+moment = require 'moment'
+_ = require 'lodash'
 
 # 乱数を取得
 getRandomInt = (max) ->
@@ -150,6 +154,70 @@ genPassowrdHandler = (res) ->
         }
       ]
 
+# 配列から要素をランダムに取得する
+choiceHandler = (res) ->
+  (argv) ->
+    try
+      items = argv.items.split(/\s*,\s*/)
+      i = getRandomInt items.length
+    
+      res.send 
+        attachments: JSON.stringify [
+          {
+            title: argv.title || "choiced one at random"
+            text: (argv.label || "choice") +  ": `#{items[i]}`"
+          }
+        ]
+    catch error
+      res.send "```Error: #{error}```"
+
+vulnConf = {
+  url: "https://jvndb.jvn.jp/myjvn"
+  params: {
+    method: "getVulnOverviewList"
+    feed: "hnd"
+    rangeDatePublic: ""
+    rangeDateFirstPublished: ""
+    rangeDatePublished: ""
+    keyword: ""
+  }
+}
+
+# 脆弱性一覧を取得する
+vulnHandler = (res) ->
+  (argv) ->
+    params = _.pick Object.assign({}, vulnConf.params, argv), Object.keys(vulnConf.params)
+    if argv.previousPublished is true
+      preDays = moment().add(-1, 'days')
+      params.datePublishedStartY = preDays.year()
+      params.datePublishedEndY = preDays.year()
+      params.datePublishedStartM = preDays.month() + 1
+      params.datePublishedEndM = preDays.month() + 1
+      params.datePublishedStartD = preDays.date()
+      params.datePublishedEndD = preDays.date()
+
+    axios.get(vulnConf.url, {params: params})
+      .then (r) ->
+        xq = xmlQuery XmlReader.parseSync(r.data)
+        if Number(xq.find('status:Status').attr('totalRes')) is 0
+          return if argv.silent
+          return res.send "`#{params.keyword}`の脆弱性は見つかりません"
+        vulns = xq.find('item').map (n) ->
+          q = xmlQuery n
+          severity = ""
+          if q.has('sec:cvss') is true
+            severity = " (#{q.find('sec:cvss').eq(0).attr("severity")})"
+          "<#{q.find('link').text()}|#{q.find('title').text()}>#{severity}"
+
+        res.send 
+          attachments: JSON.stringify [
+            {
+              color: "E91E63"
+              title: "#{params.keyword} の脆弱性 (#{vulns.length}件)"
+              text: "#{vulns.join("\n")}"
+            }
+          ]
+
 # Hello Worldを出力する
 helloHandler = (res) ->
   (argv) ->
@@ -229,9 +297,59 @@ factoryParser = (res) ->
           alias: 'r'
           describe: '位置情報からの検索半径(m)'
           type: 'number'
-          default: 500
+          default: 300
         )
       handler: lunchHandler(res)
+    ).command(
+      command: 'choice <items> [options]'
+      desc: '配列から要素をランダムに取得する'
+      builder: (yargs) ->
+        yargs.positional('items'
+          describe: 'カンマ区切りの要素 例：1,2,3,4,5'
+          type: 'string'
+        ).option('title'
+          alias: 't'
+          describe: 'タイトル'
+          type: 'string'
+        ).option('label'
+          alias: 'l'
+          describe: 'ラベル'
+          type: 'string'
+        )
+      handler: choiceHandler(res)
+    ).command(
+      command: 'vuln <keyword> [options]'
+      desc: '脆弱性情報を検索する'
+      builder: (yargs) ->
+        yargs.positional('keyword'
+          describe: 'キーワード(部分一致)'
+          type: 'string'
+        ).option('previousPublished'
+          alias: 'p'
+          describe: '前日に更新のあった脆弱性情報のみ表示'
+          default: 'false'
+          type: 'boolean'
+        ).option('rangeDatePublic'
+          alias: 'd'
+          describe: '発見日の範囲指定 n:範囲指定なし、w:過去1週間[2]、m:過去1ヶ月[3]'
+          default: 'n'
+          type: 'string'
+        ).option('rangeDatePublished'
+          alias: 'u'
+          describe: '更新日の範囲指定 n:範囲指定なし、w:過去1週間[2]、m:過去1ヶ月[3]'
+          default: 'w'
+          type: 'string'
+        ).option('rangeDateFirstPublished'
+          alias: 'n'
+          describe: '発行日の範囲指定 n:範囲指定なし、w:過去1週間[2]、m:過去1ヶ月[3]'
+          default: 'n'
+          type: 'string'
+        ).option('silent'
+          describe: '脆弱性が見つからない場合は返信しない'
+          default: 'false'
+          type: 'boolean'
+        )
+      handler: vulnHandler res
     ).help()
 
 module.exports = (robot) ->
