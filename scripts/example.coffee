@@ -297,7 +297,7 @@ factoryParser = (res) ->
           alias: 'r'
           describe: '位置情報からの検索半径(m)'
           type: 'number'
-          default: 300
+          default: 500
         )
       handler: lunchHandler(res)
     ).command(
